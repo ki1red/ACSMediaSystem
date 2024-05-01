@@ -1,0 +1,33 @@
+{
+  "name": "acsmediasystem",
+  "version": "1.0.0",
+  "description": "Online streaming service by kitfred",
+  "main": "start.js",
+  "scripts": {
+    "start_app": "node ./start.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ki1red/ACSMediaSystem.git"
+  },
+  "keywords": [],
+  "author": "ki1red",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ki1red/ACSMediaSystem/issues"
+  },
+  "homepage": "https://github.com/ki1red/ACSMediaSystem#readme",
+  "dependencies": {
+    "axios": "^1.6.8",
+    "body-parser": "^1.20.2",
+    "child_process": "^1.0.2",
+    "express": "^4.19.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "form-data": "^4.0.0",
+    "moment-timezone": "^0.5.45",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "node-media-server": "^2.6.6",
+    "sqlite3": "^5.1.7"
+  }
+}
