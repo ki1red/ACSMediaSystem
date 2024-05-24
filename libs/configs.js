@@ -10,14 +10,14 @@ const api_interface_config = {
 };
 
 const cffmpeg_config = {
-    path: '/usr/bin/ffmpeg',
+    path: '/usr/bin/ffmpeg', // TODO точно надо? удалить из проекта fluent-ffmpeg
     rtmp_url: 'rtmp://localhost:1935/live/stream'
 };
 
 const streaming_service_config = {
     rtmp: {
         port: 1935,
-        chunk_size: 60000,
+        chunk_size: 4096,
         gop_cache: true,
         ping: 30,
         ping_timeout: 60

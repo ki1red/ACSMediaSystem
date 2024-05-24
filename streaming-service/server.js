@@ -68,37 +68,38 @@ function startStream(index_array) {
     console.log(time_cron);
     const cron_process = cron.schedule(time_cron, () => {
         if (stream_playlist.length == 0) {
-            console.log('Playlist is empty');
+            //console.log('Playlist is empty');
             return;
         }
         console.log(`PROCESS: ${stream_process} already`);
         if (stream_process) {
-            console.log(`PROCESS: ${stream_process} killed`);
+            //console.log(`PROCESS: ${stream_process} killed`);
             fmpt.kill(stream_process);
         }
-        const file_name = stream_playlist[0].file_name;
-        const file_format = stream_playlist[0].file_format;
-        const full_datetime_start = stream_playlist[0].full_datetime_start;
+        const file_name = stream_playlist[index_array].file_name;
+        const file_format = stream_playlist[index_array].file_format;
+        const full_datetime_start = stream_playlist[index_array].full_datetime_start;
         const file_path = path.join(config.upload_dir, `${file_name}.${file_format}`);
         stream_process = fmpt.streamVideo(file_path);
     });
-    console.log(`CRON PROCESS ${cron_process}`);
+    //console.log(`CRON PROCESS ${cron_process}`);
+    //console.log(`file_path ${stream_playlist[0].file_name}`);
     stream_playlist[index_array].cron_process = cron_process;
 }
 
 function updatePlaylist(input_arr) {
-    console.log(`UPDATE START`)
-    console.log(`TEMP`)
-    console.log(input_arr);
-    console.log(`STREAM`);
-    console.log(stream_playlist);
+    //console.log(`UPDATE START`)
+    //console.log(`TEMP`)
+    //console.log(input_arr);
+    //console.log(`STREAM`);
+    //console.log(stream_playlist);
     // Проверяем длину массивов
     while (stream_playlist.length > input_arr.length) {
-        console.log(`DELETE ELEMENT`);
-        console.log(stream_playlist.at(-1));
+        //console.log(`DELETE ELEMENT`);
+        //console.log(stream_playlist.at(-1));
         const cron_process = stream_playlist.at(-1).cron_process;
         if (cron_process) {
-            console.log(`STOP PROCESS`)
+            //console.log(`STOP PROCESS`)
             cron_process.stop();
         }
         stream_playlist.pop();
@@ -107,17 +108,17 @@ function updatePlaylist(input_arr) {
     for (let i = 0; i < stream_playlist.length; i++) {
         const element = input_arr[i];
         const old_element = stream_playlist[i];
-        console.log(`ELEMENT NEW`);
-        console.log(element);
-        console.log(`ELEMENT OLD`);
-        console.log(old_element);
+        //console.log(`ELEMENT NEW`);
+        //console.log(element);
+        //console.log(`ELEMENT OLD`);
+        //console.log(old_element);
         if (element.file_name !== old_element.file_name ||
             element.file_format !== old_element.file_format ||
             element.full_datetime_start !== old_element.full_datetime_start) {
-            console.log(`DIFFERENT ELEMENTS`);
-            console.log(element, old_element)
+            //console.log(`DIFFERENT ELEMENTS`);
+            //console.log(element, old_element)
             if (old_element.cron_process) {
-                console.log(`STOP PROCESS`)
+                //console.log(`STOP PROCESS`)
                 old_element.cron_process.stop();
             }
             stream_playlist[i] = element;
@@ -133,6 +134,7 @@ function updatePlaylist(input_arr) {
         startStream(i);
     }
     console.log(`UPDATE STOP`);
+    console.log(stream_playlist); console.log(input_arr);
 }
 
 function convertToCron(dateTimeString) {

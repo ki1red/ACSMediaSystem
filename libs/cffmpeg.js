@@ -8,22 +8,46 @@ fluent_ffmpeg.setFfmpegPath(config.path);
 
 const fmp = {
     // Функция для преобразования изображения в видео
-    imageToVideo(imagePath, videoPath, seconds) {
+    async imageToVideo(imagePath, videoPath, seconds, width, height) {
         return new Promise((resolve, reject) => {
-            fluent_ffmpeg()
-                .input(imagePath)
-                .inputOptions([`-loop 1`])
-                .outputOptions([`-r 1`, `-t ${seconds}`, `-vf scale=1920:1080`])
-                .output(videoPath)
-                .on('end', () => {
-                    console.log(`Image ${imagePath} converted to video ${videoPath}`);
-                    resolve();
-                })
-                .on('error', (err) => {
-                    console.error('Error converting image to video:', err);
-                    reject();
-                })
-                .run();
+            const tempDir = path.join(__dirname, '..', 'uploads', `temp_${new Date().getTime()}`);
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir);
+            }
+    
+            const imageOutput = path.join(tempDir, 'image.png');
+            fs.copyFileSync(imagePath, imageOutput);
+    
+            const ffmpegFlags = [
+                '-loop', '1',
+                '-i', imageOutput,
+                '-c:v', 'libx264',
+                '-t', seconds,
+                '-vf', 'fps=60',
+                '-pix_fmt', 'yuv420p',
+                "-vf", `scale=${width}:${height}`,
+                '-movflags', 'faststart',
+                videoPath
+            ];
+    
+            const ffmpegProcess = child_process.spawn('ffmpeg', ffmpegFlags);
+    
+            ffmpegProcess.on('close', (code) => {
+                if (code !== 0) {
+                    reject(new Error(`ffmpeg process exited with code ${code}`));
+                    return;
+                }
+    
+                fs.unlinkSync(imageOutput);
+                fs.rmdirSync(tempDir);
+                console.log(`Image ${imagePath} converted to video ${videoPath}`);
+                resolve();
+            });
+    
+            ffmpegProcess.on('error', (err) => {
+                console.error('Error converting image to video:', err.message);
+                reject(err);
+            });
         });
     },
     
@@ -35,34 +59,41 @@ const fmp = {
             if (!fs.existsSync(tempDir)) {
                 fs.mkdirSync(tempDir);
             }
+
             const imageOutput = path.join(tempDir, 'image');
-            const command = `pdftoppm -jpeg -scale-to-x ${width} -scale-to-y ${height} "${pdfPath}" "${imageOutput}"`;
-            child_process.exec(command, (error, stdout, stderr) => {
-                if (error) {
-                    console.error(`Error: ${error.message}`);
-                    reject();
-                }
-                if (stderr) {
-                    console.error(`stderr: ${stderr}`);
-                    reject();
-                }
-                // Создание видео из изображений только после завершения pdftoppm
-                fluent_ffmpeg()
-                    .input(`${imageOutput}-%02d.jpg`)
-                    .inputFPS(1/seconds)
-                    .outputOptions('-c:v libx264')
-                    .outputOptions('-pix_fmt yuv420p')
-                    .output(videoPath)
-                    .on('end', () => {
-                        // Удаление временной директории с изображениями
-                        fs.readdirSync(tempDir).forEach(file => {
-                            fs.unlinkSync(path.join(tempDir, file));
-                        });
-                        fs.rmdirSync(tempDir);
-                        console.log(`Presentation ${pdfPath} converted to video ${videoPath}`);
-                        resolve();
-                    })
-                    .run();
+            const magickFlags = [
+                '-png',
+                '-scale-to-x', width,
+                '-scale-to-y', height,
+                pdfPath,
+                imageOutput];
+            const magickProcess = child_process.spawn('pdftoppm', magickFlags);
+            magickProcess.on("close", () => {
+                const files = fs.readdirSync(tempDir);
+                files.forEach((file, index) => {
+                    const oldPath = path.join(tempDir, file);
+                    const newPath = path.join(tempDir, `image-${index.toString().padStart(2, '0')}.png`);
+                    fs.renameSync(oldPath, newPath);
+                });
+
+                const ffmpegFlags = [
+                    "-r", 1/seconds,
+                    "-i", `${imageOutput}-%02d.png`,
+                    "-c:v", "libx264",
+                    "-r", "60",
+                    "-pix_fmt", "yuv420p",
+                    "-vf", `scale=${width}:${height}`,
+                    videoPath];
+                const ffmpegProcess = child_process.spawn('ffmpeg', ffmpegFlags);
+    
+                ffmpegProcess.on("close", () => {
+                    fs.readdirSync(tempDir).forEach(file => {
+                        fs.unlinkSync(path.join(tempDir, file));
+                    });
+                    fs.rmdirSync(tempDir);
+                    console.log(`Presentation ${pdfPath} converted to video ${videoPath}`);
+                    resolve();
+                });
             });
         });
     },
@@ -73,54 +104,61 @@ const fmp = {
             const stats = fs.statSync(filePath);
             return stats.size;
         } catch (error) {
-            console.error('Error getting file size:', error);
+            console.error('Error getting file size:', error.message);
             return null;
         }
     },
 
     // Функция для подсчета разрешения изображения
-    getScreenResolution(filePath) {
-        try {
-            const metadata = fluent_ffmpeg.ffprobeSync(filePath);
-            const width = metadata.streams[0].width;
-            const height = metadata.streams[0].height;
-            return { width, height };
-        } catch (err) {
-            console.error('Error getting video resolution:', err);
-            return null;
-        }
-    },
+    // getScreenResolution(filePath) {
+    //     try {
+    //         const metadata = fluent_ffmpeg.ffprobeSync(filePath);
+    //         const width = metadata.streams[0].width;
+    //         const height = metadata.streams[0].height;
+    //         return { width, height };
+    //     } catch (err) {
+    //         console.error('Error getting video resolution:', err.message);
+    //         return null;
+    //     }
+    // },
 
     // Функция изменения размеров видео или изображения
     async resizeImageOrVideo(file_path, file_name_with_format, new_width, new_height) {
         const pathToSource = path.join(file_path, `temp_${file_name_with_format}`);
         const pathToOutput = path.join(file_path, file_name_with_format);
-        
+
         return new Promise((resolve, reject) => {
-            fluent_ffmpeg(pathToSource)
-                .outputOptions([
-                    `-vf scale=${new_width}:${new_height}`,
-                    '-c:a copy' // сохранить аудио без изменений
-                ])
-                .output(pathToOutput)
-                .on('end', () => {
+            const ffmpegArgs = [
+                '-i', pathToSource,
+                '-vf', `scale=${new_width}:${new_height}`,
+                '-c:a', 'copy',
+                pathToOutput
+            ];
+
+            const ffmpegProcess = child_process.spawn('ffmpeg', ffmpegArgs);
+
+            ffmpegProcess.on('close', (code) => {
+                if (code === 0) {
                     console.log('Image resized successfully');
                     // Удаляем исходный файл
                     fs.unlink(pathToSource, (err) => {
                         if (err) {
-                            console.error('Error deleting source file:', err);
-                            reject()
+                            console.error('Error deleting source file:', err.message);
+                            reject(err);
                         } else {
                             console.log('Source file deleted successfully');
                             resolve();
                         }
                     });
-                })
-                .on('error', (err) => {
-                    console.error('Error resizing image:', err);
-                    reject();
-                })
-                .run();
+                } else {
+                    reject(new Error(`ffmpeg process exited with code ${code}`));
+                }
+            });
+
+            ffmpegProcess.on('error', (err) => {
+                console.error('Error resizing image:', err.message);
+                reject(err);
+            });
         });
     },
 
@@ -136,7 +174,18 @@ const fmpt = {
 
     // TODO функция трансляции с получением процесса
     streamVideo(full_file_path) {
-        const args = ['-re', '-i', full_file_path, '-c', 'copy', '-f', 'flv', config.rtmp_url];
+        const args = [
+            '-re',
+            '-i', full_file_path,
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-g', '30',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-f', 'flv',
+            config.rtmp_url
+          ];
         const process = child_process.spawn('ffmpeg', args);
         console.log(`process ${process}`);
         return process;

@@ -24,6 +24,9 @@ create_database.on('exit', (code, signal) => {
 function startServers() {
     // Запускаем сервер API
     const api_server = spawn(config.system_node_command, [path_api_server]);
+    // Запускаем сервер streaming service
+    const service_server = spawn(config.system_node_command, [path_service_server]);
+
     api_server.on('error', (err) => {
         console.error('Error creating api:', err);
     });
@@ -32,14 +35,14 @@ function startServers() {
     });
     api_server.on('close', (code) => {
         console.log(`API SERVER close all stdio with code: ${code}`);
+        service_server.kill();
     });
     api_server.on('exit', (code) => {
         console.log(`API SERVER exited with code ${code}`);
+        service_server.kill();
     }); 
     console.log('API SERVER started');
 
-    // Запускаем сервер streaming service
-    const service_server = spawn(config.system_node_command, [path_service_server]);
     service_server.on('error', (err) => {
         console.error('Error creating stream:', err);
     });
@@ -48,9 +51,11 @@ function startServers() {
     });
     service_server.on('close', (code) => {
         console.log(`STREAM SERVER close all stdio with code: ${code}`);
+        api_server.kill();
     });
     service_server.on('exit', (code) => {
         console.log(`STREAM SERVER exited with code ${code}`);
+        api_server.kill();
     }); 
     console.log('STREAM SERVER started');
 }

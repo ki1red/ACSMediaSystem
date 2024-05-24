@@ -21,6 +21,7 @@
     "axios": "^1.6.8",
     "body-parser": "^1.20.2",
     "child_process": "^1.0.2",
+    "cors": "^2.8.5",
     "express": "^4.19.2",
     "fluent-ffmpeg": "^2.1.2",
     "form-data": "^4.0.0",

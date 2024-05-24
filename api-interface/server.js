@@ -5,6 +5,8 @@ const path = require('path');
 const body_parser = require('body-parser');
 const moment = require('moment-timezone');
 const axios = require('axios');
+const { exit } = require('process');
+let cors = require('cors');
 
 const config = require(path.join(__dirname, '..', 'libs', 'configs')).api_interface_config;
 const fmp = require(path.join(__dirname, '..', 'libs', 'cffmpeg')).fmp;
@@ -14,6 +16,7 @@ const server = express();
 
 // Middleware для обработки JSON данных
 server.use(body_parser.json());
+server.use(cors());
 
 // Middleware для обработки файлов в формах данных
 const upload = multer({ dest: config.upload_dir });
@@ -67,10 +70,16 @@ server.post('/uploadmedia', upload.fields([{ name: 'mediaFile' }, { name: 'jsonF
         // Отправка ответа клиенту
         console.log(`File uploaded: ${mediaFileName}`);
         res.status(200).send('Data uploaded successfully');
-    } catch (error) {
-        console.error('Error during upload:', error);
+    } catch (err) {
+        if (!err.message) {
+            console.error(err);
+            res.status(500);
+            exit();
+        }
+
+        console.error('Error during upload:', err.message);
         cleanFilesWithoutExtension(config.upload_dir);
-        res.status(400).send(error.message);
+        res.status(400).send(err.message);
     }
 });
 
@@ -81,7 +90,7 @@ server.get('/listmedia', async (req, res) => {
         // Чтение содержимого всех JSON-файлов в папке uploadDir
         fs.readdir(uploadDir, (err, files) => {
             if (err) {
-                console.error('Error reading upload directory:', err);
+                console.error('Error reading upload directory:', err.message);
                 throw new Error('Error reading files');
             }
 
@@ -99,9 +108,14 @@ server.get('/listmedia', async (req, res) => {
             // Отправка массива данных пользователю
             res.status(200).json(jsonData);
         });
-    } catch (error) {
-        console.error('Error during list request:', error);
-        res.status(500).send(error.message);
+    } catch (err) {
+        if (!err.message) {
+            console.error(err);
+            res.status(500);
+        }
+
+        console.error('Error during list request:', err.message);
+        res.status(500).send(err.message);
     }
 });
 
@@ -135,7 +149,7 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
         }
 
         // Проверка, что файл не используется
-        if (jsonData_aboutMedia.using === 1) {
+        if (jsonData_aboutMedia.using === 1) { // TODO добавить проверку по бд или что-то ещё
             throw new Error('Media file is currently in use');
         }
 
@@ -151,12 +165,17 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
 
         console.log(`File ${jsonData.file_name}.${jsonData.file_format} deleted`);
         res.status(200).send('File deleted successfully');
-    } catch (error) {
-        console.error('Error during delete request:', error);
-        if (error.code === 'ENOENT') {
+    } catch (err) {
+        if (!err.message) {
+            console.error(err);
+            res.status(500);
+        }
+
+        console.error('Error during delete request:', err.message);
+        if (err.code === 'ENOENT') {
             res.status(404).send('File not found');
         } else {
-            res.status(400).send(error.message);
+            res.status(400).send(err.message);
         }
     }
 });
@@ -218,8 +237,8 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
                 // Обработка изображений
                 await fmp.imageToVideo(`${path.join(config.upload_dir, `${source.file_name}.${source.file_format}`)}`,
                     `${path.join(config.upload_dir, `${output.file_name}.${output.file_format}`)}`,
-                    additional.seconds);
-                output.seconds = additional.seconds;
+                    additional.seconds, 1920, 1080);
+                output.seconds = additional.seconds; // TODO считать через getSeconds
                 break;
             case 'presentation':
                 // Обработка презентаций
@@ -240,7 +259,12 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
         res.status(200).send('File converting');
 
     } catch (err) {
-        console.error(err);
+        if (!err.message) {
+            console.error(err);
+            res.status(500); // TODO пересмотреть все коды ошибок в API.md
+        }
+
+        console.error(err.message);
         res.status(400).send(err.message);
     }
 });
@@ -254,7 +278,7 @@ server.post('/placeelement', async (req, res) => {
             console.error(req.body);
             throw new Error('Invalid request body');
         }
-        console.log(req.body);
+        //console.log(req.body);
 
         // Проверка наличия нужных полей
         const jsonData = req.body;
@@ -301,12 +325,11 @@ server.post('/placeelement', async (req, res) => {
         const overlays = await dbms.searchOverlays(full_datetime_start, full_datetime_end);
         if (overlays.length > 0) {
             const important_overlays = overlays.some(overlay => overlay.priority >= jsonData.priority);
-            console.log(overlays);
+            //console.log(overlays);
             if (important_overlays) {
                 throw new Error('Multiple layers');
             }
         }
-        console.log(overlays);
 
         await dbms.addData(jsonData.file_name, jsonData.file_format,
             full_datetime_start, full_datetime_end, jsonData.priority);
@@ -320,15 +343,20 @@ server.post('/placeelement', async (req, res) => {
 
         axios.post('http://localhost:4035/prepare-objects', null)
             .then(response => {
-                console.log(response);
+                console.log(response.message);
             })
             .catch(error => {
                 console.log('Not connected');
             });
-    } catch (error) {
+    } catch (err) {
+        if (!err.message) {
+            console.error(err);
+            res.status(500);
+        }
+
         // Если возникла ошибка, отправляем соответствующий статус и сообщение об ошибке
-        console.error(error);
-        res.status(400).send(error.message);
+        console.error(err.message);
+        res.status(400).send(err.message);
     }
 });
 
@@ -407,18 +435,23 @@ server.put('/moveelement', async (req, res) => {
         res.status(200).send('Element moved');
         axios.post('http://localhost:4035/prepare-objects', null)
             .then(response => {
-                console.log(response);
+                console.log(response.message);
             })
             .catch(error => {
                 console.log('Not connected');
             });
-    } catch (error) {
-        console.log(error);
-        res.status(400).send(error.message);
+    } catch (err) {
+        if (!err.message) {
+            console.error(err);
+            res.status(500);
+        }
+
+        console.error(err.message);
+        res.status(400).send(err.message);
     }
 });
 
-server.delete('/deleteelement', async (req, res) => {
+server.delete('/deleteelement', async (req, res) => { // TODO разве важно наличие источника при удалении ссылания?
     try {
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (!req.body) {
@@ -470,9 +503,14 @@ server.delete('/deleteelement', async (req, res) => {
                     console.log('Not connected');
                 });
         }
-    } catch (error) {
-        console.log(error);
-        res.status(400).send(error.message);
+    } catch (err) {
+        if (!err.message) {
+            console.error(err);
+            res.status(500);
+        }
+
+        console.error(err);
+        res.status(400).send(err.message);
     }
 });
 
