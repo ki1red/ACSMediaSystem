@@ -11,6 +11,7 @@ let cors = require('cors');
 const config = require(path.join(__dirname, '..', 'libs', 'configs')).api_interface_config;
 const fmp = require(path.join(__dirname, '..', 'libs', 'cffmpeg')).fmp;
 const dbms = require(path.join(__dirname, '..', 'libs', 'dbms'));
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const server = express();
 
@@ -50,21 +51,17 @@ server.post('/uploadmedia', upload.fields([{ name: 'mediaFile' }, { name: 'jsonF
             throw new Error('Media file is required');
         }
         const mediaFileName = `${jsonData.file_name}.${jsonData.file_format}`;
-        if (jsonData.file_type == 'image' || jsonData.file_type == 'video') {
-            fs.renameSync(mediaFile.path, path.join(config.upload_dir, `temp_${mediaFileName}`));
-            await fmp.resizeImageOrVideo(config.upload_dir, mediaFileName, 1920, 1080);
-        } else {
-            fs.renameSync(mediaFile.path, path.join(config.upload_dir, mediaFileName));
-        }
 
-        const jsonFileName = `${jsonData.file_name}.${jsonData.file_format}.json`; // TODO добавить добавления поля using со значением 0
+        fs.renameSync(mediaFile.path, path.join(config.upload_dir, mediaFileName));
+
+        const jsonFileName = `${jsonData.file_name}.${jsonData.file_format}.json`;
         const jsonFilePath = path.join(config.upload_dir, jsonFileName);
 
-        // TODO добавить в json размер файла, длительность видео или кол-во страниц
         if (jsonData.file_type == 'video') {
             jsonData.seconds = fmp.getSeconds(path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}`));
         }
-        jsonData.using = 0;
+        jsonData.value_type = 'source';
+        jsonData.refs = [];
         fs.writeFileSync(jsonFilePath, JSON.stringify(jsonData, null, 4));
 
         // Отправка ответа клиенту
@@ -271,8 +268,6 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
 
 server.post('/placeelement', async (req, res) => {
     try {
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
         // Проверяем, что в запросе есть тело
         if (!req.body) {
             console.error(req.body);
@@ -361,7 +356,6 @@ server.post('/placeelement', async (req, res) => {
 });
 
 server.get('/listelements', async (req, res) => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneInfo = {
         timezone: timezone
     };
@@ -374,8 +368,6 @@ server.get('/listelements', async (req, res) => {
 
 server.put('/moveelement', async (req, res) => {
     try {
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
         // Проверяем, что в запросе есть тело
         if (!req.body) {
             console.error(req.body);
@@ -453,7 +445,6 @@ server.put('/moveelement', async (req, res) => {
 
 server.delete('/deleteelement', async (req, res) => { // TODO разве важно наличие источника при удалении ссылания?
     try {
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (!req.body) {
             throw new Error('Invalid request body');
         }

@@ -20,8 +20,6 @@ sudo apt install ffmpeg
 
 **Установка утилиты [pdftoppm](# "Разработка производилась с использованием pdftoppm 24.02.0")**
 
-TODO мб imagemagick
-
 ```
 sudo apt-get install poppler-utils
 ```

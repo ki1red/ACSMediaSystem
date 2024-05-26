@@ -1,10 +1,7 @@
-const fluent_ffmpeg = require('fluent-ffmpeg');
 const child_process = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const config = require(path.join(__dirname, '..', 'libs', 'configs')).cffmpeg_config;
-
-fluent_ffmpeg.setFfmpegPath(config.path);
 
 const fmp = {
     // Функция для преобразования изображения в видео
@@ -109,19 +106,6 @@ const fmp = {
         }
     },
 
-    // Функция для подсчета разрешения изображения
-    // getScreenResolution(filePath) {
-    //     try {
-    //         const metadata = fluent_ffmpeg.ffprobeSync(filePath);
-    //         const width = metadata.streams[0].width;
-    //         const height = metadata.streams[0].height;
-    //         return { width, height };
-    //     } catch (err) {
-    //         console.error('Error getting video resolution:', err.message);
-    //         return null;
-    //     }
-    // },
-
     // Функция изменения размеров видео или изображения
     async resizeImageOrVideo(file_path, file_name_with_format, new_width, new_height) {
         const pathToSource = path.join(file_path, `temp_${file_name_with_format}`);
@@ -172,7 +156,6 @@ const fmp = {
 
 const fmpt = {
 
-    // TODO функция трансляции с получением процесса
     streamVideo(full_file_path) {
         const args = [
             '-re',

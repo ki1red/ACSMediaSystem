@@ -154,11 +154,6 @@ function getPlaylist(full_datetime_current) {
     });
 }
 
-
-
-// TODO посмотреть, идёт ли сейчас какое-то видео
-// TODO посмотреть, какое видео в списке будет ближайшим
-
 module.exports = {
     addData,
     searchOverlays,
