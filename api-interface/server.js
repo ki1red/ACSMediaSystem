@@ -22,6 +22,16 @@ server.use(cors());
 // Middleware для обработки файлов в формах данных
 const upload = multer({ dest: config.upload_dir });
 
+server.delete('/deleteallrefmedia', async (req, res) => {
+    await autoDeleteRefMedia();
+    res.status(200).send('All ref media are deleted');
+});
+
+server.delete('/deleteunloadedmedia', async (req, res) => {
+    await deleteUnloadedMedia();
+    res.status(200).send('All undloaded media are deleted');
+});
+
 server.post('/uploadmedia', upload.fields([{ name: 'mediaFile' }, { name: 'jsonFile' }]), async (req, res) => {
     try {
         if (!req.body || !req.body.jsonFile) {
@@ -146,8 +156,11 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
         }
 
         // Проверка, что файл не используется
-        if (jsonData_aboutMedia.using === 1) { // TODO добавить проверку по бд или что-то ещё
-            throw new Error('Media file is currently in use');
+        if (jsonData_aboutMedia.value_type !== 'source') { // TODO добавить проверку по бд или что-то ещё
+            throw new Error('Media file is not source');
+        }
+        else if (jsonData_aboutMedia.refs.length > 0) {
+            throw new Error('Media file is using');
         }
 
         // Путь к медиафайлу
@@ -555,6 +568,9 @@ server.delete('/deleteelement', async (req, res) => { // TODO разве важ�
 
 server.listen(config.port, () => {
     console.log(`Server is running on port ${config.port}`);
+
+    const mseconds = config.autoclear * 1000;
+    setInterval(autoDeleteRefMedia, mseconds);
 });
 
 function contentFileIsCorrect(file_data) {
@@ -679,4 +695,69 @@ async function getMaxNum(file_name, file_format) {
     }
 
     return maxNum;
+}
+
+async function autoDeleteRefMedia() {
+    try {
+        // Получаем список всех файлов в директории
+        const files = fs.readdirSync(config.upload_dir);
+
+        // Проходим по каждому файлу в директории
+        files.forEach(file => {
+            // Проверяем расширение файла
+            if (path.extname(file) === '.json') {
+                const path_json_data = path.join(config.upload_dir, file);
+
+                // Читаем содержимое файла
+                const json_data = JSON.parse(fs.readFileSync(path_json_data, 'utf8'));
+
+                // Проверяем условия для удаления файла
+                if (json_data.value_type === 'ref' && Array.isArray(json_data.refs) && json_data.refs.length === 0) {
+                    const path_media_file = path.join(config.upload_dir, `${json_data.file_name}.${json_data.file_format}`);
+
+                    // Удаляем JSON файл
+                    fs.unlinkSync(path_json_data);
+                    console.log(`Deleted the json file: ${path_json_data}`);
+
+                    // Удаляем соответствующий медиафайл
+                    if (fs.existsSync(path_media_file)) {
+                        fs.unlinkSync(path_media_file);
+                        console.log(`Deleted the media file: ${path_media_file}`);
+                    } else {
+                        console.log(`Media file is not found: ${path_media_file}`);
+                    }
+                }
+            }
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function deleteUnloadedMedia() {
+    try {
+        // Получаем список всех файлов в директории
+        const files = fs.readdirSync(config.upload_dir);
+
+        // Отфильтровываем файлы, оставляя только файлы с расширениями и исключая .json файлы
+        const media_files = files.filter(file => {
+            const ext = path.extname(file);
+            return ext && ext !== '.json';
+        });
+
+        // Проходим по каждому медиафайлу и проверяем наличие соответствующего .json файла
+        media_files.forEach(file => {
+            const file_format = path.extname(file);
+            const file_name = path.basename(file, file_format);
+
+            if (!isFindJson(config.upload_dir, file_name, file_format.substring(1))) {
+                // Удаляем медиафайл
+                const path_media_file = path.join(config.upload_dir, file);
+                fs.unlinkSync(path_media_file);
+                console.log(`Deleted media: ${path_media_file}`);
+            }
+        });
+    } catch (err) {
+        console.error(err);
+    }
 }

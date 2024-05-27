@@ -54,8 +54,9 @@ server.post('/stop', (req, res) => {
 // Слушаем указанный порт для локального API
 server.listen(config.api_port, async () => {
     console.log(`Local API listening at ${config.api_port}`);
-    setInterval(checkAndDeleteExpiredElements, 60000);
-    await checkAndDeleteExpiredElements();
+    const mseconds = config.autoclear * 1000;
+    setInterval(autoDeleteId, mseconds);
+    await autoDeleteId();
 
     axios.post('http://localhost:4035/prepare-objects', null)
     .then(response => {
@@ -163,7 +164,7 @@ function deleteElement(element) {
 }
 
 // Основная функция для проверки и удаления элементов
-async function checkAndDeleteExpiredElements() {
+async function autoDeleteId() {
     try {
         const full_datetime_current = moment().format('YYYY-MM-DD HH:mm:ss');
         const rows = await dbms.getListBeforeDatetime(full_datetime_current); // Получаем все данные с full_datetime_end < currentTime
