@@ -228,30 +228,29 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
             throw new Error('Output file already exists');
         }
 
+        const path_source_media = path.join(config.upload_dir, `${source.file_name}.${source.file_format}`);
+        const path_output_media = path.join(config.upload_dir, `${output.file_name}.${output.file_format}`);
         // Обрабатываем исходный файл
         switch (source.file_type) {
             case 'image':
                 // Обработка изображений
-                await fmp.imageToVideo(`${path.join(config.upload_dir, `${source.file_name}.${source.file_format}`)}`,
-                    `${path.join(config.upload_dir, `${output.file_name}.${output.file_format}`)}`,
-                    additional.seconds, 1920, 1080);
+                await fmp.imageToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
                 output.seconds = additional.seconds; // TODO считать через getSeconds
                 break;
             case 'presentation':
                 // Обработка презентаций
-                await fmp.presentationToVideo(`${path.join(config.upload_dir, `${source.file_name}.${source.file_format}`)}`,
-                    `${path.join(config.upload_dir, `${output.file_name}.${output.file_format}`)}`,
-                    additional.seconds, 1920, 1080);
-                output.seconds = fmp.getSeconds(path.join(config.upload_dir, `${output.file_name}.${output.file_format}`));
+                await fmp.presentationToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
+                output.seconds = fmp.getSeconds(path_output_media);
                 break;
             default:
                 console.error(`Unsupported file type: ${file.file_type}`);
                 throw new Error('Source file is incorrect');
         }
         // Создаем для нового медиафайл - файл описания
-        const jsonFilePath = path.join(config.upload_dir,`${output.file_name}.${output.file_format}.json`);
-        output.using = 0;
-        fs.writeFileSync(jsonFilePath, JSON.stringify(output, null, 4));
+        const path_output_json = path.join(config.upload_dir,`${output.file_name}.${output.file_format}.json`);
+        output.value_type = 'ref';
+        output.refs = [];
+        fs.writeFileSync(path_output_json, JSON.stringify(output, null, 4));
 
         res.status(200).send('File converting');
 
