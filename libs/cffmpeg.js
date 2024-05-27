@@ -48,7 +48,6 @@ const fmp = {
         });
     },
     
-    // Функция для преобразования презентации PDF в видео
     async presentationToVideo(pdfPath, videoPath, seconds, width, height) {
         return new Promise((resolve, reject) => {
             // Создание временной директории для изображений
@@ -56,7 +55,7 @@ const fmp = {
             if (!fs.existsSync(tempDir)) {
                 fs.mkdirSync(tempDir);
             }
-
+    
             const imageOutput = path.join(tempDir, 'image');
             const magickFlags = [
                 '-png',
@@ -67,14 +66,19 @@ const fmp = {
             const magickProcess = child_process.spawn('pdftoppm', magickFlags);
             magickProcess.on("close", () => {
                 const files = fs.readdirSync(tempDir);
+                
+                // Переименовываем файлы и подсчитываем количество изображений
                 files.forEach((file, index) => {
                     const oldPath = path.join(tempDir, file);
                     const newPath = path.join(tempDir, `image-${index.toString().padStart(2, '0')}.png`);
                     fs.renameSync(oldPath, newPath);
                 });
 
+                // Обновляем значение seconds
+                seconds = seconds / files.length;
+    
                 const ffmpegFlags = [
-                    "-r", 1/seconds,
+                    "-r", 1 / seconds,
                     "-i", `${imageOutput}-%02d.png`,
                     "-c:v", "libx264",
                     "-r", "60",

@@ -318,6 +318,7 @@ server.post('/placeelement', async (req, res) => {
 
         let path_source_json_data;
         let source_json_data;
+        console.log(jsonData.file_type);
         if (jsonData.file_type == 'video') {
             path_source_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
             source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8'));
@@ -327,9 +328,12 @@ server.post('/placeelement', async (req, res) => {
             }
         } else {
             let media_file_name = `${jsonData.file_name}.${jsonData.file_format}`;
-            const ref_json_data = findJsonFile(jsonData.seconds, media_file_name, 'mp4'); // mp4 - по умолчанию
+            console.log(`media_file_name ${media_file_name}`);
+            const ref_json_data = await findJsonFile(jsonData.seconds, media_file_name, 'mp4'); // mp4 - по умолчанию
+            console.log(ref_json_data);
             if (!ref_json_data) {
-                const count = getMaxNum(media_file_name, 'mp4') + 1;
+                const count = await getMaxNum(media_file_name, 'mp4') + 1;
+                console.log(`count ${count}`);
                 const data = [
                     {
                         file_type: jsonData.file_type,
@@ -344,9 +348,12 @@ server.post('/placeelement', async (req, res) => {
                     {
                         seconds: jsonData.seconds
                     }
-                ]
-                const response = await axios.post('http://localhost:4004/tovideo', data)
+                ];
+                console.log(data);
+                await axios.put('http://localhost:4004/tovideo', data)
+                
                 media_file_name = `${media_file_name}.${count}`;
+                console.log(media_file_name);
             } else {
                 media_file_name = `${ref_json_data.file_name}`;
             }
@@ -354,8 +361,10 @@ server.post('/placeelement', async (req, res) => {
             source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8')); 
         }
 
-        const id = await dbms.addData(jsonData.file_name, jsonData.file_format,
+        const id = await dbms.addData(source_json_data.file_name, source_json_data.file_format,
             full_datetime_start, full_datetime_end, jsonData.priority);
+        const response = await axios.get('http://localhost:4004/listelements')
+        console.log(response);
         
         const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
