@@ -277,7 +277,7 @@ server.post('/placeelement', async (req, res) => {
 
         // Проверка наличия нужных полей
         const jsonData = req.body;
-        const requiredFields = ['file_type', 'file_name', 'file_format', 'full_start_time', 'time_zone', 'priority'];
+        const requiredFields = ['file_type', 'file_name', 'file_format', 'full_start_time', 'seconds', 'time_zone', 'priority'];
         const missingFields = requiredFields.filter(field => !(field in jsonData));
         if (missingFields.length > 0) {
             throw new Error('Invalid file information');
@@ -291,9 +291,9 @@ server.post('/placeelement', async (req, res) => {
             throw new Error('Source file not already exists');
         }
 
-        if (jsonData.file_type !== 'video') {
-            throw new Error('Source file is not a video');
-        }
+        // if (jsonData.file_type !== 'video') {
+        //     throw new Error('Source file is not a video');
+        // }
 
         // Проверка даты и часового пояса на корректность
         if (!moment(jsonData.full_start_time, 'YYYY-MM-DD HH:mm:ss', true).isValid()) {
@@ -303,18 +303,9 @@ server.post('/placeelement', async (req, res) => {
             throw new Error('TimeZone is not correct');
         }
 
-        const path_hdd_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
-        const hdd_json_data = JSON.parse(fs.readFileSync(path_hdd_json_data, 'utf8'));
-        const seconds = hdd_json_data.seconds;
-
         // Преобразовываем время в местное
         const full_datetime_start = moment.tz(jsonData.full_start_time, jsonData.time_zone).tz(timezone).format('YYYY-MM-DD HH:mm:ss');
-        const full_datetime_end = moment.tz(jsonData.full_start_time, jsonData.time_zone).add(seconds, 'seconds').tz(timezone).format('YYYY-MM-DD HH:mm:ss');
-        
-        const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
-        if (full_datetime_start <= full_datetime_current) {
-            throw new Error('Time has already passed');
-        }
+        const full_datetime_end = moment.tz(jsonData.full_start_time, jsonData.time_zone).add(jsonData.seconds, 'seconds').tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
         // Получаем список элементов, пересекающихся с нынешним
         const overlays = await dbms.searchOverlays(full_datetime_start, full_datetime_end);
@@ -326,17 +317,60 @@ server.post('/placeelement', async (req, res) => {
             }
         }
 
-        await dbms.addData(jsonData.file_name, jsonData.file_format,
+        let path_source_json_data;
+        let source_json_data;
+        if (jsonData.file_type == 'video') {
+            path_source_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
+            source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8'));
+
+            if (source_json_data.seconds !== jsonData.seconds) {
+                throw new Error('Video seconds don\'t match');
+            }
+        } else {
+            let media_file_name = `${jsonData.file_name}.${jsonData.file_format}`;
+            const ref_json_data = findJsonFile(jsonData.seconds, media_file_name, 'mp4'); // mp4 - по умолчанию
+            if (!ref_json_data) {
+                const count = getMaxNum(media_file_name, 'mp4') + 1;
+                const data = [
+                    {
+                        file_type: jsonData.file_type,
+                        file_name: jsonData.file_name,
+                        file_format: jsonData.file_format
+                    },
+                    {
+                        file_type: "video",
+                        file_name: `${media_file_name}.${count}`,
+                        file_format: "mp4"
+                    },
+                    {
+                        seconds: jsonData.seconds
+                    }
+                ]
+                const response = await axios.post('http://localhost:4004/tovideo', data)
+                media_file_name = `${media_file_name}.${count}`;
+            } else {
+                media_file_name = `${ref_json_data.file_name}`;
+            }
+            path_source_json_data = path.join(config.upload_dir, `${media_file_name}.mp4.json`);
+            source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8')); 
+        }
+
+        const id = await dbms.addData(jsonData.file_name, jsonData.file_format,
             full_datetime_start, full_datetime_end, jsonData.priority);
         
-        // Метим файл, что он используется
-        hdd_json_data.using = 1;
-        fs.writeFileSync(path_hdd_json_data, JSON.stringify(hdd_json_data, null, 4));
+        const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
+
+        if (full_datetime_start >= full_datetime_current) {
+            // Метим файл, что он используется
+            source_json_data.refs.push(id);
+        }
+        
+        fs.writeFileSync(path_source_json_data, JSON.stringify(source_json_data, null, 4));
         
         // Отправляем успешный ответ, если все шаги выполнены без ошибок
         res.status(200).send('Element added');
 
-        axios.post('http://localhost:4035/prepare-objects', null)
+        await axios.post('http://localhost:4035/prepare-objects', null)
             .then(response => {
                 console.log(response.message);
             })
@@ -573,4 +607,62 @@ function isFindJson(file_path, file_name, file_format) {
 function isFindMedia(file_path, file_name, file_format) {
     const fullPath = path.join(file_path, `${file_name}.${file_format}`);
     return fs.existsSync(fullPath);
+}
+
+async function findJsonFile(seconds, file_name, file_format) {
+    // Считываем все файлы в директории
+    const files = await fs.promises.readdir(config.upload_dir);
+
+    // Создаем регулярное выражение для проверки шаблона имени файла
+    const regex = new RegExp(`^${file_name}\\.\\d+\\.${file_format}\\.json$`);
+
+    for (const file of files) {
+        // TODO если в file есть подстрока file_name.file_format тогда идем дальше
+        if (regex.test(file)) {
+            // Формируем полный путь к файлу
+            const filePath = path.join(config.upload_dir, file);
+
+            // Проверяем, что это файл и что он имеет расширение .json
+            const stat = await fs.promises.stat(filePath);
+            if (stat.isFile() && path.extname(file) === '.json') {
+                // Считываем содержимое файла
+                const data = await fs.promises.readFile(filePath, 'utf8');
+                const jsonData = JSON.parse(data);
+
+                // Проверяем соответствие условиям
+                if (jsonData.file_type === 'video' && jsonData.seconds === seconds) {
+                    return jsonData;
+                }
+            }
+        }
+    }
+
+    // Если ничего не найдено, возвращаем null или можно кинуть ошибку
+    return null;
+}
+
+async function getMaxNum(file_name, file_format) {
+    const directory = config.upload_dir;
+
+    // Считываем все файлы в директории
+    const files = await fs.promises.readdir(directory);
+
+    // Создаем регулярное выражение для проверки шаблона имени файла
+    const regex = new RegExp(`^${file_name}\\.\\d+\\.${file_format}\\.json$`);
+    let maxNum = 0;
+
+    for (const file of files) {
+        if (regex.test(file)) {
+            // Извлекаем число N из имени файла
+            const match = file.match(new RegExp(`${file_name}\\.(\\d+)\\.${file_format}\\.json$`));
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxNum) {
+                    maxNum = num;
+                }
+            }
+        }
+    }
+
+    return maxNum;
 }
