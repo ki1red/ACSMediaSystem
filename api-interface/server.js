@@ -462,13 +462,6 @@ server.put('/moveelement', async (req, res) => {
         const full_datetime_end_new_localzone = moment.tz(jsonData.full_datetime_start_new, jsonData.time_zone).add(hdd_json_data.seconds, 'seconds').tz(timezone).format('YYYY-MM-DD HH:mm:ss');
         const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
-        // Проверяем, что не перемещаем видеофрагмент с или на нынешнее время (или в прошлое)
-        //if (full_datetime_current >= full_datetime_start_new_localzone) {
-        //    throw new Error('The new date and time have already passed');
-        //} else if (full_datetime_current >= element.full_datetime_start) {
-        //    throw new Error('The old date and time have already passed');
-        //}
-
         // Проверяем отсутствие накладок
         const overlays = await dbms.searchOverlays(full_datetime_start_new_localzone, full_datetime_end_new_localzone);
         if (overlays.length > 1) {
