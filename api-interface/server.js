@@ -442,11 +442,11 @@ server.put('/moveelement', async (req, res) => {
         const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
         // Проверяем, что не перемещаем видеофрагмент с или на нынешнее время (или в прошлое)
-        if (full_datetime_current >= full_datetime_start_new_localzone) {
-            throw new Error('The new date and time have already passed');
-        } else if (full_datetime_current >= element.full_datetime_start) {
-            throw new Error('The old date and time have already passed');
-        }
+        //if (full_datetime_current >= full_datetime_start_new_localzone) {
+        //    throw new Error('The new date and time have already passed');
+        //} else if (full_datetime_current >= element.full_datetime_start) {
+        //    throw new Error('The old date and time have already passed');
+        //}
 
         // Проверяем отсутствие накладок
         const overlays = await dbms.searchOverlays(full_datetime_start_new_localzone, full_datetime_end_new_localzone);
@@ -456,8 +456,14 @@ server.put('/moveelement', async (req, res) => {
             throw new Error('Multiple layers');
         }
 
-        await dbms.updateData(element.id, element.file_name, element.file_format, full_datetime_start_new_localzone, full_datetime_end_new_localzone, element.priority);
-        
+        hdd_json_data.refs = hdd_json_data.refs.filter(ref => ref !== element.id);
+        const resolve = await dbms.updateData(element.id, element.file_name, element.file_format, full_datetime_start_new_localzone, full_datetime_end_new_localzone, element.priority);
+        if (full_datetime_start_new_localzone >= full_datetime_current) {
+            hdd_json_data.refs.push(element.id);
+        }
+
+        fs.writeFileSync(path_hdd_json_data, JSON.stringify(hdd_json_data, null, 4));
+
         res.status(200).send('Element moved');
         axios.post('http://localhost:4035/prepare-objects', null)
             .then(response => {
@@ -514,7 +520,7 @@ server.delete('/deleteelement', async (req, res) => { // TODO разве важ�
                 const path_hdd_json_data = path.join(config.upload_dir, `${file_name}.${file_format}.json`);
                 const hdd_json_data = JSON.parse(fs.readFileSync(path_hdd_json_data, 'utf8'));
 
-                hdd_json_data.using = 0;
+                hdd_json_data.refs = hdd_json_data.refs.filter(ref => ref !== element.id);
 
                 fs.writeFileSync(path_hdd_json_data, JSON.stringify(hdd_json_data, null, 4));
             } 
