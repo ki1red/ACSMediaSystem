@@ -101,7 +101,6 @@ function getLinksToFile(file_name, file_format, full_datetime_current) {
 function getListBeforeDatetime(full_datetime_end) {
     return new Promise((resolve, reject) => {
         const sql = `SELECT * FROM content_stream WHERE full_datetime_end < ?`;
-        console.log(full_datetime_end);
         db.all(sql, [full_datetime_end], (err, rows) => {
             if (err) {
                 reject(err);

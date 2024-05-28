@@ -206,7 +206,7 @@ const fmpt = {
             config.rtmp_url
           ];
         const process = child_process.spawn('ffmpeg', args);
-        console.log(`process ${process}`);
+        //console.log(`process ${process}`);
         return process;
     },
 

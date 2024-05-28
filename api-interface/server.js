@@ -321,7 +321,6 @@ server.post('/placeelement', async (req, res) => {
             console.error(req.body);
             throw new Error('Invalid request body');
         }
-        //console.log(req.body);
 
         // Проверка наличия нужных полей
         const jsonData = req.body;
@@ -359,7 +358,6 @@ server.post('/placeelement', async (req, res) => {
         const overlays = await dbms.searchOverlays(full_datetime_start, full_datetime_end);
         if (overlays.length > 0) {
             const important_overlays = overlays.some(overlay => overlay.priority >= jsonData.priority);
-            //console.log(overlays);
             if (important_overlays) {
                 throw new Error('Multiple layers');
             }
@@ -367,7 +365,6 @@ server.post('/placeelement', async (req, res) => {
 
         let path_source_json_data;
         let source_json_data;
-        console.log(jsonData.file_type);
         if (jsonData.file_type == 'video') {
             path_source_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
             source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8'));
@@ -377,12 +374,9 @@ server.post('/placeelement', async (req, res) => {
             }
         } else {
             let media_file_name = `${jsonData.file_name}.${jsonData.file_format}`;
-            console.log(`media_file_name ${media_file_name}`);
             const ref_json_data = await findJsonFile(jsonData.seconds, media_file_name, 'mp4'); // mp4 - по умолчанию
-            console.log(ref_json_data);
             if (!ref_json_data) {
                 const count = await getMaxNum(media_file_name, 'mp4') + 1;
-                console.log(`count ${count}`);
                 const data = [
                     {
                         file_type: jsonData.file_type,
@@ -398,11 +392,9 @@ server.post('/placeelement', async (req, res) => {
                         seconds: jsonData.seconds
                     }
                 ];
-                console.log(data);
                 await axios.put('http://localhost:4004/tovideo', data)
                 
                 media_file_name = `${media_file_name}.${count}`;
-                console.log(media_file_name);
             } else {
                 media_file_name = `${ref_json_data.file_name}`;
             }
@@ -464,7 +456,6 @@ server.put('/moveelement', async (req, res) => {
             console.error(req.body);
             throw new Error('Invalid request body');
         }
-        console.log(req.body);
 
         // Проверка наличия нужных полей
         const jsonData = req.body;

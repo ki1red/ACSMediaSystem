@@ -60,20 +60,15 @@ server.listen(config.api_port, async () => {
     axios.post('http://localhost:4035/prepare-objects', null)
     .then(response => {
         console.log('First request to start stream is complete');
-    })
-    .catch(error => {
-        console.log('tututut');
     });
 });
 
 function startStream(index_array) {
     const time_cron = convertToCron(stream_playlist[index_array].full_datetime_start);
-    console.log(time_cron);
     const cron_process = cron.schedule(time_cron, () => {
         if (stream_playlist.length == 0) {
             return;
         }
-        console.log(`PROCESS: ${stream_process} already`);
         if (stream_process) {
             fmpt.kill(stream_process);
         }
@@ -112,13 +107,10 @@ function updatePlaylist(input_arr) {
 
     for (let i = stream_playlist.length; i < input_arr.length; i++) {
         const element = input_arr[i];
-        console.log(`ADDED ELEMENT`);
         console.log(element);
         stream_playlist.push(element);
         startStream(i);
     }
-    console.log(`UPDATE STOP`);
-    console.log(stream_playlist); console.log(input_arr);
 }
 
 function convertToCron(dateTimeString) {
@@ -156,10 +148,13 @@ function convertToCron(dateTimeString) {
 function deleteElement(element) {
     const id = element.id;
     const path_json_data = path.join(config.upload_dir, `${element.file_name}.${element.file_format}.json`);
-    const json_data = JSON.parse(fs.readFileSync(path_json_data, 'utf8'));
-    json_data.refs = json_data.refs.filter(ref => ref !== id);
 
-    fs.writeFileSync(path_json_data, JSON.stringify(json_data, null, 4));
+    if (fs.existsSync(path_json_data)) {
+        const json_data = JSON.parse(fs.readFileSync(path_json_data, 'utf8'));
+        json_data.refs = json_data.refs.filter(ref => ref !== id);
+
+        fs.writeFileSync(path_json_data, JSON.stringify(json_data, null, 4));
+    }
 }
 
 // Основная функция для проверки и удаления элементов
@@ -167,11 +162,7 @@ async function autoDeleteId() {
     const full_datetime_current = moment().format('YYYY-MM-DD HH:mm:ss');
     const rows = await dbms.getListBeforeDatetime(full_datetime_current); // Получаем все данные с full_datetime_end < currentTime
     for (const element of rows) {
-        try {
-            deleteElement(element);
-        } catch (err) {
-            console.error(err);
-        }
+        deleteElement(element);
     }
     console.log('All id deleted');
 }
