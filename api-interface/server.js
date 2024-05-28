@@ -11,6 +11,7 @@ let cors = require('cors');
 const config = require(path.join(__dirname, '..', 'libs', 'configs')).api_interface_config;
 const fmp = require(path.join(__dirname, '..', 'libs', 'cffmpeg')).fmp;
 const dbms = require(path.join(__dirname, '..', 'libs', 'dbms'));
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const server = express();
 
@@ -19,7 +20,32 @@ server.use(body_parser.json());
 server.use(cors());
 
 // Middleware для обработки файлов в формах данных
-const upload = multer({ dest: config.upload_dir });
+const upload = multer({ dest: config.upload_dir, limits: { fileSize: 100 * 1024 * 1024 }});
+
+// Middleware для раздачи статических файлов
+server.use('/viewmedia', express.static(config.preview_dir));
+
+// Обработчик запросов для просмотра изображений
+server.get('/viewmedia/:file_name/:frame_num', (req, res) => {
+    // Извлекаем имя папки и номер изображения из запроса
+    const { file_name, frame_num } = req.params;
+    
+    // Формируем путь к изображению
+    const path_image = path.join(config.preview_dir, file_name, `frame_${frame_num}.jpg`);
+
+    // Отправляем изображение в ответ
+    res.sendFile(path_image);
+});
+
+server.delete('/deleteallrefmedia', async (req, res) => {
+    await autoDeleteRefMedia();
+    res.status(200).send('All ref media are deleted');
+});
+
+server.delete('/deleteunloadedmedia', async (req, res) => {
+    await deleteUnloadedMedia();
+    res.status(200).send('All undloaded media are deleted');
+});
 
 server.post('/uploadmedia', upload.fields([{ name: 'mediaFile' }, { name: 'jsonFile' }]), async (req, res) => {
     try {
@@ -50,26 +76,32 @@ server.post('/uploadmedia', upload.fields([{ name: 'mediaFile' }, { name: 'jsonF
             throw new Error('Media file is required');
         }
         const mediaFileName = `${jsonData.file_name}.${jsonData.file_format}`;
-        if (jsonData.file_type == 'image' || jsonData.file_type == 'video') {
-            fs.renameSync(mediaFile.path, path.join(config.upload_dir, `temp_${mediaFileName}`));
-            await fmp.resizeImageOrVideo(config.upload_dir, mediaFileName, 1920, 1080);
-        } else {
-            fs.renameSync(mediaFile.path, path.join(config.upload_dir, mediaFileName));
-        }
 
-        const jsonFileName = `${jsonData.file_name}.${jsonData.file_format}.json`; // TODO добавить добавления поля using со значением 0
+        fs.renameSync(mediaFile.path, path.join(config.upload_dir, mediaFileName));
+
+        const jsonFileName = `${jsonData.file_name}.${jsonData.file_format}.json`;
         const jsonFilePath = path.join(config.upload_dir, jsonFileName);
 
-        // TODO добавить в json размер файла, длительность видео или кол-во страниц
         if (jsonData.file_type == 'video') {
             jsonData.seconds = fmp.getSeconds(path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}`));
         }
-        jsonData.using = 0;
+        jsonData.value_type = 'source';
+        jsonData.refs = [];
         fs.writeFileSync(jsonFilePath, JSON.stringify(jsonData, null, 4));
 
         // Отправка ответа клиенту
         console.log(`File uploaded: ${mediaFileName}`);
         res.status(200).send('Data uploaded successfully');
+
+        if (jsonData.file_type == 'video') {
+            fmp.generateRandomFrames(
+                path.join(config.upload_dir, mediaFileName),
+                mediaFileName,
+                path.join(config.preview_dir),
+                jsonData.seconds,
+                config.count_preview
+            )
+        }
     } catch (err) {
         if (!err.message) {
             console.error(err);
@@ -149,8 +181,11 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
         }
 
         // Проверка, что файл не используется
-        if (jsonData_aboutMedia.using === 1) { // TODO добавить проверку по бд или что-то ещё
-            throw new Error('Media file is currently in use');
+        if (jsonData_aboutMedia.value_type !== 'source') { // TODO добавить проверку по бд или что-то ещё
+            throw new Error('Media file is not source');
+        }
+        else if (jsonData_aboutMedia.refs.length > 0) {
+            throw new Error('Media file is using');
         }
 
         // Путь к медиафайлу
@@ -165,6 +200,8 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
 
         console.log(`File ${jsonData.file_name}.${jsonData.file_format} deleted`);
         res.status(200).send('File deleted successfully');
+
+        deletePreviewFolder(`${jsonData.file_name}.${jsonData.file_format}`);
     } catch (err) {
         if (!err.message) {
             console.error(err);
@@ -231,33 +268,41 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
             throw new Error('Output file already exists');
         }
 
+        const path_source_media = path.join(config.upload_dir, `${source.file_name}.${source.file_format}`);
+        const path_output_media = path.join(config.upload_dir, `${output.file_name}.${output.file_format}`);
         // Обрабатываем исходный файл
         switch (source.file_type) {
             case 'image':
                 // Обработка изображений
-                await fmp.imageToVideo(`${path.join(config.upload_dir, `${source.file_name}.${source.file_format}`)}`,
-                    `${path.join(config.upload_dir, `${output.file_name}.${output.file_format}`)}`,
-                    additional.seconds, 1920, 1080);
+                await fmp.imageToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
                 output.seconds = additional.seconds; // TODO считать через getSeconds
                 break;
             case 'presentation':
                 // Обработка презентаций
-                await fmp.presentationToVideo(`${path.join(config.upload_dir, `${source.file_name}.${source.file_format}`)}`,
-                    `${path.join(config.upload_dir, `${output.file_name}.${output.file_format}`)}`,
-                    additional.seconds, 1920, 1080);
-                output.seconds = fmp.getSeconds(path.join(config.upload_dir, `${output.file_name}.${output.file_format}`));
+                await fmp.presentationToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
+                output.seconds = fmp.getSeconds(path_output_media);
                 break;
             default:
                 console.error(`Unsupported file type: ${file.file_type}`);
                 throw new Error('Source file is incorrect');
         }
         // Создаем для нового медиафайл - файл описания
-        const jsonFilePath = path.join(config.upload_dir,`${output.file_name}.${output.file_format}.json`);
-        output.using = 0;
-        fs.writeFileSync(jsonFilePath, JSON.stringify(output, null, 4));
+        const path_output_json = path.join(config.upload_dir,`${output.file_name}.${output.file_format}.json`);
+        output.value_type = 'ref';
+        output.refs = [];
+        fs.writeFileSync(path_output_json, JSON.stringify(output, null, 4));
 
         res.status(200).send('File converting');
 
+        if (output.file_type == 'video') {
+            fmp.generateRandomFrames(
+                path_output_media,
+                `${output.file_name}.${output.file_format}`,
+                path.join(config.preview_dir),
+                output.seconds,
+                config.count_preview
+            )
+        }
     } catch (err) {
         if (!err.message) {
             console.error(err);
@@ -271,18 +316,15 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
 
 server.post('/placeelement', async (req, res) => {
     try {
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
         // Проверяем, что в запросе есть тело
         if (!req.body) {
             console.error(req.body);
             throw new Error('Invalid request body');
         }
-        //console.log(req.body);
 
         // Проверка наличия нужных полей
         const jsonData = req.body;
-        const requiredFields = ['file_type', 'file_name', 'file_format', 'full_start_time', 'time_zone', 'priority'];
+        const requiredFields = ['file_type', 'file_name', 'file_format', 'full_start_time', 'seconds', 'time_zone', 'priority'];
         const missingFields = requiredFields.filter(field => !(field in jsonData));
         if (missingFields.length > 0) {
             throw new Error('Invalid file information');
@@ -296,9 +338,9 @@ server.post('/placeelement', async (req, res) => {
             throw new Error('Source file not already exists');
         }
 
-        if (jsonData.file_type !== 'video') {
-            throw new Error('Source file is not a video');
-        }
+        // if (jsonData.file_type !== 'video') {
+        //     throw new Error('Source file is not a video');
+        // }
 
         // Проверка даты и часового пояса на корректность
         if (!moment(jsonData.full_start_time, 'YYYY-MM-DD HH:mm:ss', true).isValid()) {
@@ -308,40 +350,76 @@ server.post('/placeelement', async (req, res) => {
             throw new Error('TimeZone is not correct');
         }
 
-        const path_hdd_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
-        const hdd_json_data = JSON.parse(fs.readFileSync(path_hdd_json_data, 'utf8'));
-        const seconds = hdd_json_data.seconds;
-
         // Преобразовываем время в местное
         const full_datetime_start = moment.tz(jsonData.full_start_time, jsonData.time_zone).tz(timezone).format('YYYY-MM-DD HH:mm:ss');
-        const full_datetime_end = moment.tz(jsonData.full_start_time, jsonData.time_zone).add(seconds, 'seconds').tz(timezone).format('YYYY-MM-DD HH:mm:ss');
-        
-        const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
-        if (full_datetime_start <= full_datetime_current) {
-            throw new Error('Time has already passed');
-        }
+        const full_datetime_end = moment.tz(jsonData.full_start_time, jsonData.time_zone).add(jsonData.seconds, 'seconds').tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
         // Получаем список элементов, пересекающихся с нынешним
         const overlays = await dbms.searchOverlays(full_datetime_start, full_datetime_end);
         if (overlays.length > 0) {
             const important_overlays = overlays.some(overlay => overlay.priority >= jsonData.priority);
-            //console.log(overlays);
             if (important_overlays) {
                 throw new Error('Multiple layers');
             }
         }
 
-        await dbms.addData(jsonData.file_name, jsonData.file_format,
+        let path_source_json_data;
+        let source_json_data;
+        if (jsonData.file_type == 'video') {
+            path_source_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
+            source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8'));
+
+            if (source_json_data.seconds !== jsonData.seconds) {
+                throw new Error('Video seconds don\'t match');
+            }
+        } else {
+            let media_file_name = `${jsonData.file_name}.${jsonData.file_format}`;
+            const ref_json_data = await findJsonFile(jsonData.seconds, media_file_name, 'mp4'); // mp4 - по умолчанию
+            if (!ref_json_data) {
+                const count = await getMaxNum(media_file_name, 'mp4') + 1;
+                const data = [
+                    {
+                        file_type: jsonData.file_type,
+                        file_name: jsonData.file_name,
+                        file_format: jsonData.file_format
+                    },
+                    {
+                        file_type: "video",
+                        file_name: `${media_file_name}.${count}`,
+                        file_format: "mp4"
+                    },
+                    {
+                        seconds: jsonData.seconds
+                    }
+                ];
+                await axios.put('http://localhost:4004/tovideo', data)
+                
+                media_file_name = `${media_file_name}.${count}`;
+            } else {
+                media_file_name = `${ref_json_data.file_name}`;
+            }
+            path_source_json_data = path.join(config.upload_dir, `${media_file_name}.mp4.json`);
+            source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8')); 
+        }
+
+        const id = await dbms.addData(source_json_data.file_name, source_json_data.file_format,
             full_datetime_start, full_datetime_end, jsonData.priority);
+        const response = await axios.get('http://localhost:4004/listelements')
+        console.log(response);
         
-        // Метим файл, что он используется
-        hdd_json_data.using = 1;
-        fs.writeFileSync(path_hdd_json_data, JSON.stringify(hdd_json_data, null, 4));
+        const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
+
+        if (full_datetime_start >= full_datetime_current) {
+            // Метим файл, что он используется
+            source_json_data.refs.push(id);
+        }
+        
+        fs.writeFileSync(path_source_json_data, JSON.stringify(source_json_data, null, 4));
         
         // Отправляем успешный ответ, если все шаги выполнены без ошибок
         res.status(200).send('Element added');
 
-        axios.post('http://localhost:4035/prepare-objects', null)
+        await axios.post('http://localhost:4035/prepare-objects', null)
             .then(response => {
                 console.log(response.message);
             })
@@ -361,7 +439,6 @@ server.post('/placeelement', async (req, res) => {
 });
 
 server.get('/listelements', async (req, res) => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneInfo = {
         timezone: timezone
     };
@@ -374,14 +451,11 @@ server.get('/listelements', async (req, res) => {
 
 server.put('/moveelement', async (req, res) => {
     try {
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
         // Проверяем, что в запросе есть тело
         if (!req.body) {
             console.error(req.body);
             throw new Error('Invalid request body');
         }
-        console.log(req.body);
 
         // Проверка наличия нужных полей
         const jsonData = req.body;
@@ -415,13 +489,6 @@ server.put('/moveelement', async (req, res) => {
         const full_datetime_end_new_localzone = moment.tz(jsonData.full_datetime_start_new, jsonData.time_zone).add(hdd_json_data.seconds, 'seconds').tz(timezone).format('YYYY-MM-DD HH:mm:ss');
         const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
-        // Проверяем, что не перемещаем видеофрагмент с или на нынешнее время (или в прошлое)
-        if (full_datetime_current >= full_datetime_start_new_localzone) {
-            throw new Error('The new date and time have already passed');
-        } else if (full_datetime_current >= element.full_datetime_start) {
-            throw new Error('The old date and time have already passed');
-        }
-
         // Проверяем отсутствие накладок
         const overlays = await dbms.searchOverlays(full_datetime_start_new_localzone, full_datetime_end_new_localzone);
         if (overlays.length > 1) {
@@ -430,8 +497,14 @@ server.put('/moveelement', async (req, res) => {
             throw new Error('Multiple layers');
         }
 
-        await dbms.updateData(element.id, element.file_name, element.file_format, full_datetime_start_new_localzone, full_datetime_end_new_localzone, element.priority);
-        
+        hdd_json_data.refs = hdd_json_data.refs.filter(ref => ref !== element.id);
+        const resolve = await dbms.updateData(element.id, element.file_name, element.file_format, full_datetime_start_new_localzone, full_datetime_end_new_localzone, element.priority);
+        if (full_datetime_start_new_localzone >= full_datetime_current) {
+            hdd_json_data.refs.push(element.id);
+        }
+
+        fs.writeFileSync(path_hdd_json_data, JSON.stringify(hdd_json_data, null, 4));
+
         res.status(200).send('Element moved');
         axios.post('http://localhost:4035/prepare-objects', null)
             .then(response => {
@@ -453,7 +526,6 @@ server.put('/moveelement', async (req, res) => {
 
 server.delete('/deleteelement', async (req, res) => { // TODO разве важно наличие источника при удалении ссылания?
     try {
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (!req.body) {
             throw new Error('Invalid request body');
         }
@@ -489,15 +561,19 @@ server.delete('/deleteelement', async (req, res) => { // TODO разве важ�
                 const path_hdd_json_data = path.join(config.upload_dir, `${file_name}.${file_format}.json`);
                 const hdd_json_data = JSON.parse(fs.readFileSync(path_hdd_json_data, 'utf8'));
 
-                hdd_json_data.using = 0;
+                hdd_json_data.refs = hdd_json_data.refs.filter(ref => ref !== element.id);
 
                 fs.writeFileSync(path_hdd_json_data, JSON.stringify(hdd_json_data, null, 4));
             } 
             res.status(200).send('Element deleted');
 
-            axios.post('http://localhost:4035/prepare-objects', null)
+            axios.post('http://localhost:4035/prepare-objects')
                 .then(response => {
                     console.log(response);
+                    axios.delete('http://localhost:4035/clean')
+                        .then(response => {
+                            console.log(response)
+                        });
                 })
                 .catch(error => {
                     console.log('Not connected');
@@ -516,6 +592,9 @@ server.delete('/deleteelement', async (req, res) => { // TODO разве важ�
 
 server.listen(config.port, () => {
     console.log(`Server is running on port ${config.port}`);
+
+    const mseconds = config.autoclear * 1000;
+    setInterval(autoDeleteRefMedia, mseconds);
 });
 
 function contentFileIsCorrect(file_data) {
@@ -582,4 +661,146 @@ function isFindJson(file_path, file_name, file_format) {
 function isFindMedia(file_path, file_name, file_format) {
     const fullPath = path.join(file_path, `${file_name}.${file_format}`);
     return fs.existsSync(fullPath);
+}
+
+async function findJsonFile(seconds, file_name, file_format) {
+    // Считываем все файлы в директории
+    const files = await fs.promises.readdir(config.upload_dir);
+
+    // Создаем регулярное выражение для проверки шаблона имени файла
+    const regex = new RegExp(`^${file_name}\\.\\d+\\.${file_format}\\.json$`);
+
+    for (const file of files) {
+        // TODO если в file есть подстрока file_name.file_format тогда идем дальше
+        if (regex.test(file)) {
+            // Формируем полный путь к файлу
+            const filePath = path.join(config.upload_dir, file);
+
+            // Проверяем, что это файл и что он имеет расширение .json
+            const stat = await fs.promises.stat(filePath);
+            if (stat.isFile() && path.extname(file) === '.json') {
+                // Считываем содержимое файла
+                const data = await fs.promises.readFile(filePath, 'utf8');
+                const jsonData = JSON.parse(data);
+
+                // Проверяем соответствие условиям
+                if (jsonData.file_type === 'video' && jsonData.seconds === seconds) {
+                    return jsonData;
+                }
+            }
+        }
+    }
+
+    // Если ничего не найдено, возвращаем null или можно кинуть ошибку
+    return null;
+}
+
+async function getMaxNum(file_name, file_format) {
+    const directory = config.upload_dir;
+
+    // Считываем все файлы в директории
+    const files = await fs.promises.readdir(directory);
+
+    // Создаем регулярное выражение для проверки шаблона имени файла
+    const regex = new RegExp(`^${file_name}\\.\\d+\\.${file_format}\\.json$`);
+    let maxNum = 0;
+
+    for (const file of files) {
+        if (regex.test(file)) {
+            // Извлекаем число N из имени файла
+            const match = file.match(new RegExp(`${file_name}\\.(\\d+)\\.${file_format}\\.json$`));
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxNum) {
+                    maxNum = num;
+                }
+            }
+        }
+    }
+
+    return maxNum;
+}
+
+async function autoDeleteRefMedia() {
+    try {
+        // Получаем список всех файлов в директории
+        const files = fs.readdirSync(config.upload_dir);
+
+        // Проходим по каждому файлу в директории
+        files.forEach(file => {
+            // Проверяем расширение файла
+            if (path.extname(file) === '.json') {
+                const path_json_data = path.join(config.upload_dir, file);
+
+                // Читаем содержимое файла
+                const json_data = JSON.parse(fs.readFileSync(path_json_data, 'utf8'));
+
+                // Проверяем условия для удаления файла
+                if (json_data.value_type === 'ref' && Array.isArray(json_data.refs) && json_data.refs.length === 0) {
+                    const path_media_file = path.join(config.upload_dir, `${json_data.file_name}.${json_data.file_format}`);
+
+                    // Удаляем JSON файл
+                    fs.unlinkSync(path_json_data);
+                    console.log(`Deleted the json file: ${path_json_data}`);
+
+                    // Удаляем соответствующий медиафайл
+                    if (fs.existsSync(path_media_file)) {
+                        fs.unlinkSync(path_media_file);
+                        console.log(`Deleted the media file: ${path_media_file}`);
+                    } else {
+                        console.log(`Media file is not found: ${path_media_file}`);
+                    }
+
+                    deletePreviewFolder(`${json_data.file_name}.${json_data.file_format}`);
+                }
+            }
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function deleteUnloadedMedia() {
+    try {
+        // Получаем список всех файлов в директории
+        const files = fs.readdirSync(config.upload_dir);
+
+        // Отфильтровываем файлы, оставляя только файлы с расширениями и исключая .json файлы
+        const media_files = files.filter(file => {
+            const ext = path.extname(file);
+            return ext && ext !== '.json';
+        });
+
+        // Проходим по каждому медиафайлу и проверяем наличие соответствующего .json файла
+        media_files.forEach(file => {
+            const file_format = path.extname(file);
+            const file_name = path.basename(file, file_format);
+
+            if (!isFindJson(config.upload_dir, file_name, file_format.substring(1))) {
+                // Удаляем медиафайл
+                const path_media_file = path.join(config.upload_dir, file);
+                fs.unlinkSync(path_media_file);
+                console.log(`Deleted media: ${path_media_file}`);
+
+                deletePreviewFolder(file);
+            }
+        });
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function deletePreviewFolder(folder_name) {
+    const path_preview = path.join(config.preview_dir, folder_name);
+    if (fs.existsSync(path_preview)) {
+        fs.readdirSync(path_preview).forEach((file, index) => {
+            const curPath = path_preview + '/' + file;
+            if (fs.lstatSync(curPath).isDirectory()) { // рекурсивное удаление поддиректорий
+                deleteFolderRecursive(curPath);
+            } else { // удаление файла
+                fs.unlinkSync(curPath);
+            }
+        });
+        fs.rmdirSync(path_preview); // удаление самой папки
+    }
 }

@@ -98,10 +98,10 @@ function getLinksToFile(file_name, file_format, full_datetime_current) {
 }
 
 // Функция для вывода полного списка данных в заданном диапазоне времени
-function getListInDataRange(full_datetime_start, full_datetime_end) {
+function getListBeforeDatetime(full_datetime_end) {
     return new Promise((resolve, reject) => {
-        const sql = `SELECT * FROM content_stream WHERE full_datetime_start >= ? AND full_datetime_end <= ?`;
-        db.all(sql, [full_datetime_start, full_datetime_end], (err, rows) => {
+        const sql = `SELECT * FROM content_stream WHERE full_datetime_end < ?`;
+        db.all(sql, [full_datetime_end], (err, rows) => {
             if (err) {
                 reject(err);
             }
@@ -154,11 +154,6 @@ function getPlaylist(full_datetime_current) {
     });
 }
 
-
-
-// TODO посмотреть, идёт ли сейчас какое-то видео
-// TODO посмотреть, какое видео в списке будет ближайшим
-
 module.exports = {
     addData,
     searchOverlays,
@@ -166,7 +161,7 @@ module.exports = {
     deleteDataById,
     getData,
     getList,
-    getListInDataRange,
+    getListBeforeDatetime,
     getLinksToFile,
     getPlaylist
 };

@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const moment = require('moment-timezone');
 const NodeMediaServer = require('node-media-server');
@@ -44,36 +45,31 @@ server.post('/prepare-objects', async (req, res) => {
     updatePlaylist(temp_playlist);
     res.status(200).send('Stream restart requested');
 });
-server.post('/stop', (req, res) => {
-    if (stream_process) {
-        fmpt.kill(stream_process);
-    }
+server.delete('/clean', (req, res) => {
+    autoDeleteId();
+    res.status(200).send('All id deleted');
 });
 
 // Слушаем указанный порт для локального API
-server.listen(config.api_port, () => {
+server.listen(config.api_port, async () => {
     console.log(`Local API listening at ${config.api_port}`);
+    const mseconds = config.autoclear * 1000;
+    setInterval(autoDeleteId, mseconds);
+    await autoDeleteId();
 
     axios.post('http://localhost:4035/prepare-objects', null)
     .then(response => {
         console.log('First request to start stream is complete');
-    })
-    .catch(error => {
-        console.log('tututut');
     });
 });
 
 function startStream(index_array) {
     const time_cron = convertToCron(stream_playlist[index_array].full_datetime_start);
-    console.log(time_cron);
     const cron_process = cron.schedule(time_cron, () => {
         if (stream_playlist.length == 0) {
-            //console.log('Playlist is empty');
             return;
         }
-        console.log(`PROCESS: ${stream_process} already`);
         if (stream_process) {
-            //console.log(`PROCESS: ${stream_process} killed`);
             fmpt.kill(stream_process);
         }
         const file_name = stream_playlist[index_array].file_name;
@@ -82,24 +78,14 @@ function startStream(index_array) {
         const file_path = path.join(config.upload_dir, `${file_name}.${file_format}`);
         stream_process = fmpt.streamVideo(file_path);
     });
-    //console.log(`CRON PROCESS ${cron_process}`);
-    //console.log(`file_path ${stream_playlist[0].file_name}`);
     stream_playlist[index_array].cron_process = cron_process;
 }
 
 function updatePlaylist(input_arr) {
-    //console.log(`UPDATE START`)
-    //console.log(`TEMP`)
-    //console.log(input_arr);
-    //console.log(`STREAM`);
-    //console.log(stream_playlist);
     // Проверяем длину массивов
     while (stream_playlist.length > input_arr.length) {
-        //console.log(`DELETE ELEMENT`);
-        //console.log(stream_playlist.at(-1));
         const cron_process = stream_playlist.at(-1).cron_process;
         if (cron_process) {
-            //console.log(`STOP PROCESS`)
             cron_process.stop();
         }
         stream_playlist.pop();
@@ -108,17 +94,10 @@ function updatePlaylist(input_arr) {
     for (let i = 0; i < stream_playlist.length; i++) {
         const element = input_arr[i];
         const old_element = stream_playlist[i];
-        //console.log(`ELEMENT NEW`);
-        //console.log(element);
-        //console.log(`ELEMENT OLD`);
-        //console.log(old_element);
         if (element.file_name !== old_element.file_name ||
             element.file_format !== old_element.file_format ||
             element.full_datetime_start !== old_element.full_datetime_start) {
-            //console.log(`DIFFERENT ELEMENTS`);
-            //console.log(element, old_element)
             if (old_element.cron_process) {
-                //console.log(`STOP PROCESS`)
                 old_element.cron_process.stop();
             }
             stream_playlist[i] = element;
@@ -128,13 +107,10 @@ function updatePlaylist(input_arr) {
 
     for (let i = stream_playlist.length; i < input_arr.length; i++) {
         const element = input_arr[i];
-        console.log(`ADDED ELEMENT`);
         console.log(element);
         stream_playlist.push(element);
         startStream(i);
     }
-    console.log(`UPDATE STOP`);
-    console.log(stream_playlist); console.log(input_arr);
 }
 
 function convertToCron(dateTimeString) {
@@ -167,4 +143,26 @@ function convertToCron(dateTimeString) {
 
     // Возвращаем сформированное выражение крона
     return `${second} ${minute} ${hour} ${dayOfMonth} ${month} ${dayOfWeek}`;
+}
+
+function deleteElement(element) {
+    const id = element.id;
+    const path_json_data = path.join(config.upload_dir, `${element.file_name}.${element.file_format}.json`);
+
+    if (fs.existsSync(path_json_data)) {
+        const json_data = JSON.parse(fs.readFileSync(path_json_data, 'utf8'));
+        json_data.refs = json_data.refs.filter(ref => ref !== id);
+
+        fs.writeFileSync(path_json_data, JSON.stringify(json_data, null, 4));
+    }
+}
+
+// Основная функция для проверки и удаления элементов
+async function autoDeleteId() {
+    const full_datetime_current = moment().format('YYYY-MM-DD HH:mm:ss');
+    const rows = await dbms.getListBeforeDatetime(full_datetime_current); // Получаем все данные с full_datetime_end < currentTime
+    for (const element of rows) {
+        deleteElement(element);
+    }
+    console.log('All id deleted');
 }
