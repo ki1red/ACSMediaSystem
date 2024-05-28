@@ -155,6 +155,38 @@ const fmp = {
         const output = child_process.execSync(command, { encoding: 'utf8' });
         const durationSeconds = parseFloat(output.trim());
         return durationSeconds;
+    },
+
+    async generateRandomFrames(videoPath, file_name, outputDir, seconds, num_frames = 3) {
+        try {
+            // Создаем директорию, если она не существует
+            const dirPath = path.join(outputDir, file_name);
+            if (!fs.existsSync(dirPath)) {
+                fs.mkdirSync(dirPath, { recursive: true });
+            }
+    
+            // Генерируем случайные временные метки для кадров
+            const timestamps = Array.from({ length: num_frames }, () => Math.floor(Math.random() * seconds));
+    
+            // Создаем и выполняем команды ffmpeg асинхронно
+            await Promise.all(timestamps.map(async (timestamp, index) => {
+                const command = `ffmpeg -i "${videoPath}" -ss ${timestamp} -vframes 1 "${path.join(dirPath, `frame_${index}.jpg`)}" -y`;
+                await new Promise((resolve, reject) => {
+                    child_process.exec(command, (error, stdout, stderr) => {
+                        if (error) {
+                            reject(error);
+                        } else {
+                            console.log(`Frame ${index} generated for ${file_name}`);
+                            resolve();
+                        }
+                    });
+                });
+            }));
+    
+            console.log(`Random frames generated successfully for ${file_name}`);
+        } catch (error) {
+            console.error(error);
+        }
     }
 };
 

@@ -45,10 +45,9 @@ server.post('/prepare-objects', async (req, res) => {
     updatePlaylist(temp_playlist);
     res.status(200).send('Stream restart requested');
 });
-server.post('/stop', (req, res) => {
-    if (stream_process) {
-        fmpt.kill(stream_process);
-    }
+server.delete('/clean', (req, res) => {
+    autoDeleteId();
+    res.status(200).send('All id deleted');
 });
 
 // Слушаем указанный порт для локального API
@@ -165,14 +164,14 @@ function deleteElement(element) {
 
 // Основная функция для проверки и удаления элементов
 async function autoDeleteId() {
-    try {
-        const full_datetime_current = moment().format('YYYY-MM-DD HH:mm:ss');
-        const rows = await dbms.getListBeforeDatetime(full_datetime_current); // Получаем все данные с full_datetime_end < currentTime
-        for (const element of rows) {
+    const full_datetime_current = moment().format('YYYY-MM-DD HH:mm:ss');
+    const rows = await dbms.getListBeforeDatetime(full_datetime_current); // Получаем все данные с full_datetime_end < currentTime
+    for (const element of rows) {
+        try {
             deleteElement(element);
+        } catch (err) {
+            console.error(err);
         }
-        console.log('All id are deleted');
-    } catch (err) {
-        console.error(err);
     }
+    console.log('All id deleted');
 }

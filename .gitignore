@@ -3,4 +3,5 @@
 /.vscode
 /client/
 /node_modules/
+/video-preview/*
 package-lock.json

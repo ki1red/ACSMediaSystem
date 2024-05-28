@@ -20,7 +20,22 @@ server.use(body_parser.json());
 server.use(cors());
 
 // Middleware для обработки файлов в формах данных
-const upload = multer({ dest: config.upload_dir });
+const upload = multer({ dest: config.upload_dir, limits: { fileSize: 100 * 1024 * 1024 }});
+
+// Middleware для раздачи статических файлов
+server.use('/viewmedia', express.static(config.preview_dir));
+
+// Обработчик запросов для просмотра изображений
+server.get('/viewmedia/:file_name/:frame_num', (req, res) => {
+    // Извлекаем имя папки и номер изображения из запроса
+    const { file_name, frame_num } = req.params;
+    
+    // Формируем путь к изображению
+    const path_image = path.join(config.preview_dir, file_name, `frame_${frame_num}.jpg`);
+
+    // Отправляем изображение в ответ
+    res.sendFile(path_image);
+});
 
 server.delete('/deleteallrefmedia', async (req, res) => {
     await autoDeleteRefMedia();
@@ -77,6 +92,16 @@ server.post('/uploadmedia', upload.fields([{ name: 'mediaFile' }, { name: 'jsonF
         // Отправка ответа клиенту
         console.log(`File uploaded: ${mediaFileName}`);
         res.status(200).send('Data uploaded successfully');
+
+        if (jsonData.file_type == 'video') {
+            fmp.generateRandomFrames(
+                path.join(config.upload_dir, mediaFileName),
+                mediaFileName,
+                path.join(config.preview_dir),
+                jsonData.seconds,
+                config.count_preview
+            )
+        }
     } catch (err) {
         if (!err.message) {
             console.error(err);
@@ -175,6 +200,8 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
 
         console.log(`File ${jsonData.file_name}.${jsonData.file_format} deleted`);
         res.status(200).send('File deleted successfully');
+
+        deletePreviewFolder(`${jsonData.file_name}.${jsonData.file_format}`);
     } catch (err) {
         if (!err.message) {
             console.error(err);
@@ -267,6 +294,15 @@ server.put('/tovideo', async (req, res) => { // TODO ошибки из функ�
 
         res.status(200).send('File converting');
 
+        if (output.file_type == 'video') {
+            fmp.generateRandomFrames(
+                path_output_media,
+                `${output.file_name}.${output.file_format}`,
+                path.join(config.preview_dir),
+                output.seconds,
+                config.count_preview
+            )
+        }
     } catch (err) {
         if (!err.message) {
             console.error(err);
@@ -540,9 +576,13 @@ server.delete('/deleteelement', async (req, res) => { // TODO разве важ�
             } 
             res.status(200).send('Element deleted');
 
-            axios.post('http://localhost:4035/prepare-objects', null)
+            axios.post('http://localhost:4035/prepare-objects')
                 .then(response => {
                     console.log(response);
+                    axios.delete('http://localhost:4035/clean')
+                        .then(response => {
+                            console.log(response)
+                        });
                 })
                 .catch(error => {
                     console.log('Not connected');
@@ -719,6 +759,8 @@ async function autoDeleteRefMedia() {
                     } else {
                         console.log(`Media file is not found: ${path_media_file}`);
                     }
+
+                    deletePreviewFolder(`${json_data.file_name}.${json_data.file_format}`);
                 }
             }
         });
@@ -748,9 +790,26 @@ async function deleteUnloadedMedia() {
                 const path_media_file = path.join(config.upload_dir, file);
                 fs.unlinkSync(path_media_file);
                 console.log(`Deleted media: ${path_media_file}`);
+
+                deletePreviewFolder(file);
             }
         });
     } catch (err) {
         console.error(err);
+    }
+}
+
+function deletePreviewFolder(folder_name) {
+    const path_preview = path.join(config.preview_dir, folder_name);
+    if (fs.existsSync(path_preview)) {
+        fs.readdirSync(path_preview).forEach((file, index) => {
+            const curPath = path_preview + '/' + file;
+            if (fs.lstatSync(curPath).isDirectory()) { // рекурсивное удаление поддиректорий
+                deleteFolderRecursive(curPath);
+            } else { // удаление файла
+                fs.unlinkSync(curPath);
+            }
+        });
+        fs.rmdirSync(path_preview); // удаление самой папки
     }
 }

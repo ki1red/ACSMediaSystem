@@ -6,11 +6,14 @@ const start_config = {
 
 const api_interface_config = {
     port: 4004,
-    upload_dir: path.join(__dirname, '..', 'uploads')
+    upload_dir: path.join(__dirname, '..', 'uploads'),
+    preview_dir: path.join(__dirname, '..', 'video-preview'),
+    count_preview: 3,
+    autoclear: 86400
 };
 
 const cffmpeg_config = {
-    path: '/usr/bin/ffmpeg', // TODO точно надо? удалить из проекта fluent-ffmpeg
+    path: '/usr/bin/ffmpeg',
     rtmp_url: 'rtmp://localhost:1935/live/stream'
 };
 
@@ -24,7 +27,7 @@ const streaming_service_config = {
     },
     http: {
         port: 8000,
-        mediaroot: path.join(__dirname, '..', 'uploads'),
+        mediaroot: path.join(__dirname, '..', 'mediaroot'),
         allow_origin: '*'
     },
     trans: {
@@ -39,7 +42,9 @@ const streaming_service_config = {
         ]
     },
     api_port: 4035,
-    upload_dir: path.join(__dirname, '..', 'uploads')
+    upload_dir: api_interface_config.upload_dir,
+    preview_dir: api_interface_config.preview_dir,
+    autoclear: 60
 };
 
 module.exports = { start_config, api_interface_config, streaming_service_config, cffmpeg_config };
