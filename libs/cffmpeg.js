@@ -22,7 +22,7 @@ const fmp = {
                 '-t', seconds,
                 '-vf', 'fps=60',
                 '-pix_fmt', 'yuv420p',
-                "-vf", `scale=${width}:${height}`,
+                "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
                 '-movflags', 'faststart',
                 videoPath
             ];
@@ -59,8 +59,8 @@ const fmp = {
             const imageOutput = path.join(tempDir, 'image');
             const magickFlags = [
                 '-png',
-                '-scale-to-x', width,
-                '-scale-to-y', height,
+                //'-scale-to-x', width,
+                //'-scale-to-y', height,
                 pdfPath,
                 imageOutput];
             const magickProcess = child_process.spawn('pdftoppm', magickFlags);
@@ -83,7 +83,7 @@ const fmp = {
                     "-c:v", "libx264",
                     "-r", "60",
                     "-pix_fmt", "yuv420p",
-                    "-vf", `scale=${width}:${height}`,
+                    "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
                     videoPath];
                 const ffmpegProcess = child_process.spawn('ffmpeg', ffmpegFlags);
     
