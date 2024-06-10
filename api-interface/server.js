@@ -217,102 +217,9 @@ server.delete('/deletemedia', async (req, res) => { // здесь parse не н�
     }
 });
 
-server.put('/tovideo', async (req, res) => { // TODO ошибки из функций iTV и pTV не всегда обрабатываются в этом try catch
-    try {
-        // Проверяем, что в запросе есть тело
-        if (!req.body || !Array.isArray(req.body) || req.body.length !== 3) {
-            console.error(req.body);
-            throw new Error('Invalid request body');
-        }
-
-        const source = req.body[0], output = req.body[1], additional = req.body[2];
-
-        // Проверяем наличие всех обязательных полей в каждом объекте массива
-        const requiredFields = ['file_type', 'file_name', 'file_format'];
-        const requiredFields2 = ['seconds'];
-        const missingFields = [];
-        requiredFields.forEach(field => {
-            if (!(field in source)) {
-                missingFields.push(field);
-            }
-            if (!(field in output)) {
-                missingFields.push(field);
-            }
-        });
-        requiredFields2.forEach(field => {
-            if (!(field in additional)) {
-                missingFields.push(field);
-            }
-        });
-        if (missingFields.length > 0) {
-            throw new Error('Missing required fields in file data');
-        }
-
-        contentFileIsCorrect(source);
-        contentFileIsCorrect(output);
-        if (output.file_type !== 'video') {
-            throw new Error('New file do not have video format');
-        }
-        if (source.file_type == 'video') {
-            throw new Error('Old file is video');
-        }
-
-        // Проверка наличия файла с таким именем и расширением
-        if (!isFindJson(config.upload_dir, source.file_name, source.file_format) ||
-        !isFindMedia(config.upload_dir, source.file_name, source.file_format)) {
-            throw new Error('Source file not already exists');
-        }
-        // Проверка наличия файла с таким именем и расширением
-        if (isFindJson(config.upload_dir, output.file_name, output.file_format) ||
-        isFindMedia(config.upload_dir, output.file_name, output.file_format)) {
-            throw new Error('Output file already exists');
-        }
-
-        const path_source_media = path.join(config.upload_dir, `${source.file_name}.${source.file_format}`);
-        const path_output_media = path.join(config.upload_dir, `${output.file_name}.${output.file_format}`);
-        // Обрабатываем исходный файл
-        switch (source.file_type) {
-            case 'image':
-                // Обработка изображений
-                await fmp.imageToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
-                output.seconds = additional.seconds; // TODO считать через getSeconds
-                break;
-            case 'presentation':
-                // Обработка презентаций
-                await fmp.presentationToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
-                output.seconds = fmp.getSeconds(path_output_media);
-                break;
-            default:
-                console.error(`Unsupported file type: ${file.file_type}`);
-                throw new Error('Source file is incorrect');
-        }
-        // Создаем для нового медиафайл - файл описания
-        const path_output_json = path.join(config.upload_dir,`${output.file_name}.${output.file_format}.json`);
-        output.value_type = 'ref';
-        output.refs = [];
-        fs.writeFileSync(path_output_json, JSON.stringify(output, null, 4));
-
-        res.status(200).send('File converting');
-
-        if (output.file_type == 'video') {
-            fmp.generateRandomFrames(
-                path_output_media,
-                `${output.file_name}.${output.file_format}`,
-                path.join(config.preview_dir),
-                output.seconds,
-                config.count_preview
-            )
-        }
-    } catch (err) {
-        if (!err.message) {
-            console.error(err);
-            res.status(500); // TODO пересмотреть все коды ошибок в API.md
-        }
-
-        console.error(err.message);
-        res.status(400).send(err.message);
-    }
-});
+// server.put('/tovideo', async (req, res) => { // TODO ошибки из функций iTV и pTV не всегда обрабатываются в этом try catch
+    
+// });
 
 server.post('/placeelement', async (req, res) => {
     try {
@@ -337,10 +244,6 @@ server.post('/placeelement', async (req, res) => {
                 !isFindMedia(config.upload_dir, jsonData.file_name, jsonData.file_format)) {
             throw new Error('Source file not already exists');
         }
-
-        // if (jsonData.file_type !== 'video') {
-        //     throw new Error('Source file is not a video');
-        // }
 
         // Проверка даты и часового пояса на корректность
         if (!moment(jsonData.full_start_time, 'YYYY-MM-DD HH:mm:ss', true).isValid()) {
@@ -369,7 +272,7 @@ server.post('/placeelement', async (req, res) => {
             path_source_json_data = path.join(config.upload_dir, `${jsonData.file_name}.${jsonData.file_format}.json`);
             source_json_data = JSON.parse(fs.readFileSync(path_source_json_data, 'utf8'));
 
-            if (source_json_data.seconds !== jsonData.seconds) {
+            if (Math.abs(source_json_data.seconds - jsonData.seconds) >= 1) {
                 throw new Error('Video seconds don\'t match');
             }
         } else {
@@ -392,7 +295,7 @@ server.post('/placeelement', async (req, res) => {
                         seconds: jsonData.seconds
                     }
                 ];
-                await axios.put('http://localhost:4004/tovideo', data)
+                await toVideo(data);
                 
                 media_file_name = `${media_file_name}.${count}`;
             } else {
@@ -404,8 +307,8 @@ server.post('/placeelement', async (req, res) => {
 
         const id = await dbms.addData(source_json_data.file_name, source_json_data.file_format,
             full_datetime_start, full_datetime_end, jsonData.priority);
-        const response = await axios.get('http://localhost:4004/listelements')
-        console.log(response);
+        //const response = await axios.get('http://localhost:4004/listelements')
+        //console.log(response);
         
         const full_datetime_current = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
@@ -684,7 +587,7 @@ async function findJsonFile(seconds, file_name, file_format) {
                 const jsonData = JSON.parse(data);
 
                 // Проверяем соответствие условиям
-                if (jsonData.file_type === 'video' && jsonData.seconds === seconds) {
+                if (jsonData.file_type === 'video' && Math.abs(jsonData.seconds - seconds) < 1) {
                     return jsonData;
                 }
             }
@@ -802,5 +705,92 @@ function deletePreviewFolder(folder_name) {
             }
         });
         fs.rmdirSync(path_preview); // удаление самой папки
+    }
+}
+
+async function toVideo(data) {
+    console.log('tovideo');
+    console.log(data);
+    // Проверяем, что в запросе есть тело
+    if (!data || !Array.isArray(data) || data.length !== 3) {
+        console.error(data);
+        throw new Error('Invalid request body');
+    }
+
+    const source = data[0], output = data[1], additional = data[2];
+
+    // Проверяем наличие всех обязательных полей в каждом объекте массива
+    const requiredFields = ['file_type', 'file_name', 'file_format'];
+    const requiredFields2 = ['seconds'];
+    const missingFields = [];
+    requiredFields.forEach(field => {
+        if (!(field in source)) {
+            missingFields.push(field);
+        }
+        if (!(field in output)) {
+            missingFields.push(field);
+        }
+    });
+    requiredFields2.forEach(field => {
+        if (!(field in additional)) {
+            missingFields.push(field);
+        }
+    });
+    if (missingFields.length > 0) {
+        throw new Error('Missing required fields in file data');
+    }
+
+    contentFileIsCorrect(source);
+    contentFileIsCorrect(output);
+    if (output.file_type !== 'video') {
+        throw new Error('New file do not have video format');
+    }
+    if (source.file_type == 'video') {
+        throw new Error('Old file is video');
+    }
+
+    // Проверка наличия файла с таким именем и расширением
+    if (!isFindJson(config.upload_dir, source.file_name, source.file_format) ||
+    !isFindMedia(config.upload_dir, source.file_name, source.file_format)) {
+        throw new Error('Source file not already exists');
+    }
+    // Проверка наличия файла с таким именем и расширением
+    if (isFindJson(config.upload_dir, output.file_name, output.file_format) ||
+    isFindMedia(config.upload_dir, output.file_name, output.file_format)) {
+        throw new Error('Output file already exists');
+    }
+
+    const path_source_media = path.join(config.upload_dir, `${source.file_name}.${source.file_format}`);
+    const path_output_media = path.join(config.upload_dir, `${output.file_name}.${output.file_format}`);
+    // Обрабатываем исходный файл
+    switch (source.file_type) {
+        case 'image':
+            // Обработка изображений
+            await fmp.imageToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
+            output.seconds = additional.seconds; // TODO считать через getSeconds
+            break;
+        case 'presentation':
+            // Обработка презентаций
+            await fmp.presentationToVideo(path_source_media, path_output_media, additional.seconds, 1920, 1080);
+            output.seconds = fmp.getSeconds(path_output_media);
+            break;
+        default:
+            console.error(`Unsupported file type: ${file.file_type}`);
+            throw new Error('Source file is incorrect');
+    }
+    // Создаем для нового медиафайл - файл описания
+    const path_output_json = path.join(config.upload_dir,`${output.file_name}.${output.file_format}.json`);
+    output.value_type = 'ref';
+    output.refs = [];
+    fs.writeFileSync(path_output_json, JSON.stringify(output, null, 4));
+
+    if (output.file_type == 'video') {
+        fmp.generateRandomFrames(
+            path_output_media,
+            `${output.file_name}.${output.file_format}`,
+            path.join(config.preview_dir),
+            output.seconds,
+            config.count_preview
+        )
     }
 }
